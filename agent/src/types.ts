@@ -21,9 +21,30 @@ export interface Signal {
 }
 export interface Claim { text: string; cites: string[]; signal: string | null }
 export interface StruckClaim { claim: Claim; reason: string }
+export interface ResponseFormat {
+  type: "object";
+  properties: {
+    claims: {
+      type: "array"; maxItems: 5;
+      items: {
+        type: "object";
+        properties: {
+          text: { type: "string"; maxLength: 240 };
+          cites: { type: "array"; minItems: 1; maxItems: 7; items: { type: "string"; enum: string[] } };
+          signal: { anyOf: ({ type: "string"; enum: string[] } | { type: "null" })[] };
+        };
+        required: string[];
+      };
+    };
+    strength: { type: "number"; minimum: 0; maximum: 1 };
+  };
+  required: string[];
+}
 export interface Brief {
   mode: "llm" | "template"; model: string; prompt: string;
   modelDigest?: string | null;
+  responseFormat?: ResponseFormat;
+  normalized?: boolean;
   rawResponse: string; claims: Claim[]; struck: StruckClaim[]; strength: number; error?: string;
 }
 export interface Debate { bull: Brief; bear: Brief }

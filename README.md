@@ -55,9 +55,11 @@ News tone uses the fixed positive/negative title-word lists in `signals.ts`: `(p
 
 Bull and bear receive the same signal/exhibit/title input, with distinct role instructions from `prompts/`. Their JSON output is validated before citation checks. A claim with no citations, unknown/unavailable citations or an unknown signal is struck with its reason. The bundle retains the full prompt, model ID, raw text, surviving claims and struck claims. The validator checks citation existence and availability, not whether prose is factually supported by the citation. A failed LLM call produces a deterministic template with the error recorded; malformed raw model text is retained.
 
-GitHub Models was retired on 2026-07-30; its endpoint returned HTTP 200 with plain `OK`, causing the debates in cases 3–5 to fall back. Casefile now runs the local Ollama model `qwen2.5:3b` without an API key. The legacy `github-models` config value remains valid for old cases, but new attempts record `GitHub Models was retired on 2026-07-30` and use the template.
+GitHub Models was retired on 2026-07-30; its endpoint returned HTTP 200 with plain `OK`, causing the debates in cases 3–5 to fall back. Casefile now runs the local Ollama model `qwen2.5:7b` without an API key. The legacy `github-models` config value remains valid for old cases, but new attempts record `GitHub Models was retired on 2026-07-30` and use the template.
 
-Ollama uses the [native chat API](https://docs.ollama.com/api/chat) with JSON format, temperature 0 and seed 42. Bull completes before bear starts, with a 300-second timeout per call for CPU inference. Each model brief records the exact `modelDigest` from [the installed model list](https://docs.ollama.com/api/tags), or `null` if lookup fails. Older bundles can omit this field. Preserve the weights identified by that digest and compare it with the installed model's digest when reproducing an old debate; model tags can change.
+Ollama uses the [native chat API](https://docs.ollama.com/api/chat) with a per-case JSON schema restricting citations to available exhibits and signals to non-null names or `null`, recorded exactly as `responseFormat` in each model brief. Generation uses temperature 0, seed 42, `num_ctx: 8192` and `num_predict: 700`, with bull finishing before bear starts and a 600-second timeout per call. Parsing repairs missing signals to `null` and splits, trims and upper-cases joined citations, recording `normalized: true` when repaired; other validation stays strict and invalid claims retain their strike reasons.
+
+Each model brief also records the exact `modelDigest` from [the installed model list](https://docs.ollama.com/api/tags), or `null` if lookup fails. Older bundles can omit `modelDigest`, `responseFormat` and `normalized`. Preserve the weights identified by that digest and compare it with the installed model's digest when reproducing an old debate; model tags can change.
 
 To reproduce a debate locally, install Ollama using its [official setup instructions](https://docs.ollama.com/linux), then run:
 
@@ -65,13 +67,13 @@ To reproduce a debate locally, install Ollama using its [official setup instruct
 # Terminal 1
 ollama serve
 # Terminal 2
-ollama pull qwen2.5:3b
+ollama pull qwen2.5:7b
 curl http://127.0.0.1:11434/api/tags
 cd agent
 OLLAMA_URL=http://127.0.0.1:11434 npm run agent -- --dry-run --assets BTC --out ./tmp
 ```
 
-That command uses fresh evidence. For a stored debate, pass the bundle's `exhibits` and `signals` to `buildDebate` with its archived config, or submit its exact stored bull and bear prompts to `/api/chat` with the same model, temperature and seed. Matching weights and settings identifies the intended model run; output can vary across Ollama versions and hardware. Offline replay verifies the stored briefs and ruling without running inference. Phase 3 validation used mocks only; Ollama was not installed and no model was downloaded on this machine.
+That command uses fresh evidence. For a stored debate, submit its exact stored bull and bear prompts to `/api/chat` with its archived model and temperature, seed 42, stored `responseFormat`, `num_ctx: 8192` and `num_predict: 700`. Phase 3 bundles used `format: "json"` without context or prediction limits; preserve those original settings when reproducing them. Calling `buildDebate` with a bundle's `exhibits`, `signals` and archived config instead uses the current prompts and generation settings. Matching weights and settings identifies the intended model run; output can vary across Ollama versions and hardware. Offline replay verifies the stored briefs and ruling without running inference. Phase 3 and Phase 4 validation used mocks only; Ollama was not installed and no model was downloaded on this machine.
 
 ## Judge and hashes
 
@@ -97,7 +99,7 @@ Review reads all of the agent's cases and processes open ones using Coinbase hou
 
 Ledger transport retries RPC requests five times, verifies the RPC chain ID, uses ceiling(estimate × 1.3) gas, waits for receipts and rejects reverted transactions. Immutable JSON is saved before submission so receipt failures do not erase evidence. Transactions and index updates are separate operations; if a transaction succeeds but the subsequent index write fails, the JSON and chain record still exist and online replay by hash remains possible. Cross-process file locking is not implemented; the scheduled workflow serializes runs with a shared concurrency group.
 
-CI builds/tests the vendored Foundry project and runs npm ci, offline Vitest and strict TypeScript under Node 22. The scheduled workflow runs at `17 */6 * * *` or manually, installs Ollama, caches `~/.ollama/models` by model tag, starts the server, waits up to 60 seconds for readiness and pulls `qwen2.5:3b`. It reviews first, then opens new cases, and commits case/review files and config archives with a UTC timestamp. Configure the repository's `AGENT_PRIVATE_KEY` secret and `LEDGER_ADDRESS` variable before enabling it. The workflow's commit commands are stored as source only; they were not executed during this implementation.
+CI builds/tests the vendored Foundry project and runs npm ci, offline Vitest and strict TypeScript under Node 22. The scheduled workflow runs at `17 */6 * * *` or manually, installs Ollama, caches `~/.ollama/models` by model tag, starts the server, waits up to 60 seconds for readiness and pulls `qwen2.5:7b`. It reviews first, then opens new cases, and commits case/review files and config archives with a UTC timestamp. Configure the repository's `AGENT_PRIVATE_KEY` secret and `LEDGER_ADDRESS` variable before enabling it. The workflow's commit commands are stored as source only; they were not executed during this implementation.
 
 `contracts/script/Deploy.s.sol` reads `PRIVATE_KEY`, creates the ledger and writes `deployments/<chainId>.json`. Run Foundry scripts from `contracts/` so the deployment path is correct. Phase 2 completed the local Anvil deployment, opening, Horizon review and online replay checks; see `PHASE2-REPORT.md`.
 
