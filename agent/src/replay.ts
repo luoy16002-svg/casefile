@@ -2,7 +2,7 @@ import { parseArgs } from "node:util";
 import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { canonicalJson, hashBundle } from "./bundle.js";
-import { loadConfig, type Config } from "./config.js";
+import { loadConfig, loadConfigForHash, type Config } from "./config.js";
 import { validateClaims } from "./debate.js";
 import { judge, JUDGE_VERSION } from "./judge.js";
 import { computeSignals } from "./signals.js";
@@ -26,7 +26,7 @@ export function verifyBundle(bytes: string, config: Config, expectedHash?: strin
   if (expectedHash && hash !== expectedHash.toLowerCase()) throw new Error("Bundle hash mismatch");
   const bundle = bundleSchema.parse(raw);
   if (bundle.judgeVersion !== JUDGE_VERSION) throw new Error(`Unsupported judge version ${bundle.judgeVersion}`);
-  if (bundle.configHash !== hashBundle(config)) throw new Error("Config hash mismatch; use the original casefile.config.json");
+  if (bundle.configHash !== hashBundle(config)) throw new Error("Config hash mismatch; use the archived config matching bundle.configHash");
   const signals = computeSignals(bundle.exhibits);
   equal(signals, bundle.signals, "Signals");
   for (const role of ["bull", "bear"] as const) {
@@ -40,6 +40,23 @@ export function verifyBundle(bytes: string, config: Config, expectedHash?: strin
   }
   equal(judge(signals, bundle.debate, bundle.exhibits, config), bundle.ruling, "Ruling");
   return { bundle, hash };
+}
+
+export async function verifyBundleWithConfig(bytes: string, expectedHash?: string, current?: Config): Promise<{ bundle: Bundle; hash: `0x${string}`; config: Config }> {
+  const bundle = bundleSchema.parse(JSON.parse(bytes));
+  const config = await loadConfigForHash(bundle.configHash, current);
+  return { ...verifyBundle(bytes, config, expectedHash), config };
+}
+
+export async function loadBundleBytes(path: string, expectedHash?: string): Promise<string> {
+  if (await exists(path)) return readFile(await workspacePath(path), "utf8");
+  if (expectedHash && process.env.CASEFILE_BUNDLE_BASE) {
+    const base = process.env.CASEFILE_BUNDLE_BASE.replace(/\/?$/, "/");
+    const response = await fetch(new URL(`${expectedHash}.json`, base), { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) throw new Error(`Bundle download HTTP ${response.status}`);
+    return response.text();
+  }
+  throw new Error(`Bundle not found: ${path}`);
 }
 
 export function verifyChain(bundle: Bundle, hash: string, c: LedgerCase): void {
@@ -60,7 +77,7 @@ export function replayTrail(bundle: Bundle, hash: string): string {
   for (const c of bundle.ruling.contributions) lines.push(`  ${c.rule}: ${c.vote} × ${c.weight} = ${round(c.vote * c.weight)}; ${c.reason}`);
   for (const role of ["bull", "bear"] as const) {
     const brief = bundle.debate[role];
-    lines.push(`${role} (${brief.mode}, model=${brief.model}, strength=${brief.strength})${brief.error ? ` fallback=${brief.error}` : ""}:`);
+    lines.push(`${role} (${brief.mode}, model=${brief.model}${brief.modelDigest !== undefined ? `, digest=${brief.modelDigest ?? "unknown"}` : ""}, strength=${brief.strength})${brief.error ? ` fallback=${brief.error}` : ""}:`);
     for (const c of brief.claims) lines.push(`  SURVIVES [${c.cites.join(",")}] ${c.text}`);
     for (const c of brief.struck) lines.push(`  STRUCK [${c.claim.cites.join(",")}] ${c.claim.text}; ${c.reason}`);
   }
@@ -94,15 +111,8 @@ export async function replay(): Promise<void> {
   }
   const path = await workspacePath(expectedHash && (id !== undefined || /^0x[0-9a-fA-F]{64}$/.test(arg))
     ? resolve(ROOT, "cases", `${expectedHash}.json`) : resolve(arg));
-  let bytes: string;
-  if (await exists(path)) bytes = await readFile(path, "utf8");
-  else if (expectedHash && process.env.CASEFILE_BUNDLE_BASE) {
-    const base = process.env.CASEFILE_BUNDLE_BASE.replace(/\/?$/, "/");
-    const response = await fetch(new URL(`${expectedHash}.json`, base), { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(15_000) });
-    if (!response.ok) throw new Error(`Bundle download HTTP ${response.status}`);
-    bytes = await response.text();
-  } else throw new Error(`Bundle not found: ${path}`);
-  const verified = verifyBundle(bytes, config, expectedHash);
+  const bytes = await loadBundleBytes(path, expectedHash);
+  const verified = await verifyBundleWithConfig(bytes, expectedHash, config);
   if (ledger) {
     if (!chainCase) {
       // Bundle lookup does not require a local index or the configured agent's key.

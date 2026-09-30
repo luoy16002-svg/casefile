@@ -23,6 +23,7 @@ export interface Claim { text: string; cites: string[]; signal: string | null }
 export interface StruckClaim { claim: Claim; reason: string }
 export interface Brief {
   mode: "llm" | "template"; model: string; prompt: string;
+  modelDigest?: string | null;
   rawResponse: string; claims: Claim[]; struck: StruckClaim[]; strength: number; error?: string;
 }
 export interface Debate { bull: Brief; bear: Brief }

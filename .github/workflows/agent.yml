@@ -5,7 +5,6 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
-  models: read
 concurrency:
   group: casefile-agent
   cancel-in-progress: false
@@ -23,24 +22,44 @@ jobs:
           cache-dependency-path: agent/package-lock.json
       - run: npm ci
         working-directory: agent
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          # Use the runner's home for the cached models and background server.
+          sudo systemctl stop ollama || true
+      - uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ${{ runner.os }}-ollama-qwen2.5:3b
+      - name: Start Ollama and pull model
+        env:
+          OLLAMA_HOST: 127.0.0.1:11434
+        run: |
+          ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
+          if ! timeout 60s bash -c 'until curl -fsS --connect-timeout 1 --max-time 1 http://127.0.0.1:11434/api/tags > /dev/null; do sleep 1; done'; then
+            cat "$RUNNER_TEMP/ollama.log"
+            echo "Ollama did not become ready within 60 seconds"
+            exit 1
+          fi
+          ollama pull qwen2.5:3b
       - name: Review open cases
         run: npm run review
         working-directory: agent
         env:
           AGENT_PRIVATE_KEY: ${{ secrets.AGENT_PRIVATE_KEY }}
           LEDGER_ADDRESS: ${{ vars.LEDGER_ADDRESS }}
-          MODELS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OLLAMA_URL: http://127.0.0.1:11434
       - name: Open new cases
         run: npm run agent
         working-directory: agent
         env:
           AGENT_PRIVATE_KEY: ${{ secrets.AGENT_PRIVATE_KEY }}
           LEDGER_ADDRESS: ${{ vars.LEDGER_ADDRESS }}
-          MODELS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OLLAMA_URL: http://127.0.0.1:11434
       - name: Save case and review files
         if: always()
         run: |
-          git add cases/ reviews/
+          git add cases/ reviews/ agent/configs/
           if git diff --cached --quiet; then
             echo "No case or review changes"
             exit 0
