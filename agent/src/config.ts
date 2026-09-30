@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { resolve } from "node:path";
-import { AGENT_DIR, readJson } from "./paths.js";
-import { hashBundle } from "./bundle.js";
+import { AGENT_DIR, exists, readJson, writeImmutable } from "./paths.js";
+import { canonicalJson, hashBundle } from "./bundle.js";
 
 const weight = z.number().finite().nonnegative();
 export const configSchema = z.object({
@@ -19,7 +19,7 @@ export const configSchema = z.object({
       fundingHighPct: z.number(), fundingLowPct: z.number(), fngHigh: z.number().min(0).max(100), fngLow: z.number().min(0).max(100)
     }).strict()
   }).strict(),
-  llm: z.object({ provider: z.enum(["github-models", "none"]), model: z.string().min(1), temperature: z.number().min(0).max(2) }).strict(),
+  llm: z.object({ provider: z.enum(["ollama", "github-models", "none"]), model: z.string().min(1), temperature: z.number().min(0).max(2) }).strict(),
   chain: z.object({ chainId: z.number().int().positive(), rpc: z.url() }).strict()
 }).strict().superRefine((config, ctx) => {
   if (config.risk.minStopPct > config.risk.maxStopPct || config.risk.maxStopPct * config.risk.rewardRisk >= 100)
@@ -34,4 +34,24 @@ export async function loadConfig(): Promise<{ config: Config; configHash: `0x${s
   const raw = await readJson(resolve(AGENT_DIR, "casefile.config.json"));
   const config = configSchema.parse(raw);
   return { config, configHash: hashBundle(config) };
+}
+
+export const CONFIGS_DIR = resolve(AGENT_DIR, "configs");
+
+export async function saveConfig(config: Config, directory = CONFIGS_DIR): Promise<void> {
+  const validated = configSchema.parse(config);
+  await writeImmutable(resolve(directory, `${hashBundle(validated)}.json`), canonicalJson(validated));
+}
+
+export async function loadConfigForHash(configHash: string, current?: Config, directory = CONFIGS_DIR): Promise<Config> {
+  if (!/^0x[0-9a-f]{64}$/.test(configHash)) throw new Error(`Invalid config hash: ${configHash}`);
+  const path = resolve(directory, `${configHash}.json`);
+  if (await exists(path)) {
+    const config = configSchema.parse(await readJson(path));
+    if (hashBundle(config) !== configHash) throw new Error(`Archived config hash mismatch: ${path}`);
+    return config;
+  }
+  const config = current ?? (await loadConfig()).config;
+  if (hashBundle(config) === configHash) return config;
+  throw new Error(`No config found for ${configHash}; restore agent/configs/${configHash}.json`);
 }

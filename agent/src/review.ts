@@ -10,6 +10,7 @@ import { ROOT } from "./paths.js";
 import type { Asset, Candle, CloseReason, Exhibit, LedgerCase, ReviewBundle } from "./types.js";
 import { errorMessage } from "./evidence/http.js";
 import { cli, isMain } from "./cli.js";
+import { loadBundleBytes, verifyBundleWithConfig, verifyChain } from "./replay.js";
 
 export function detectClose(c: LedgerCase, candles: Candle[], now: number): { reason: CloseReason; exitE8: bigint } | null {
   if (c.reason !== 0) return null;
@@ -56,8 +57,11 @@ export async function review(): Promise<void> {
       const c = await ledger.getCase(id);
       if (c.reason !== 0) continue;
       open++;
+      const bytes = await loadBundleBytes(resolve(ROOT, "cases", `${c.bundleHash}.json`), c.bundleHash);
+      const opening = await verifyBundleWithConfig(bytes, c.bundleHash, config);
+      verifyChain(opening.bundle, opening.hash, c);
       const asset = hexToString(c.asset, { size: 32 }).replace(/\0+$/, "") as Asset;
-      if (!config.assets.includes(asset)) throw new Error(`Unsupported asset ${asset}`);
+      if (!opening.config.assets.includes(asset)) throw new Error(`Unsupported asset ${asset}`);
       // Chain time may be warped in tests; public API windows use actual market time.
       const marketNow = Math.floor(Date.now() / 1000);
       const exhibits = await fetchReviewCandles(asset, Number(c.openedAt), marketNow);

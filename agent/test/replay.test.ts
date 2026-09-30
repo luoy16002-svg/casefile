@@ -1,10 +1,31 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync, readdirSync } from "node:fs";
+import { resolve } from "node:path";
 import { canonicalJson, hashBundle } from "../src/bundle.js";
-import { replayTrail, verifyBundle, verifyChain } from "../src/replay.js";
+import { replayTrail, verifyBundle, verifyBundleWithConfig, verifyChain } from "../src/replay.js";
+import { ROOT } from "../src/paths.js";
 import { assetBytes, sideNumber } from "../src/ledger.js";
 import { config, fixtureBundle, ledgerCase } from "./helpers.js";
 
 describe("replay", () => {
+  it.each(readdirSync(resolve(ROOT, "cases")).filter(name => /^0x[0-9a-f]{64}\.json$/.test(name)))
+    ("replays the existing bundle %s with its archived config", async name => {
+      const bytes = readFileSync(resolve(ROOT, "cases", name), "utf8");
+      const verified = await verifyBundleWithConfig(bytes, name.slice(0, -5), config);
+      expect(verified.hash).toBe(name.slice(0, -5));
+      expect(hashBundle(verified.config)).toBe(verified.bundle.configHash);
+      expect(verified.config.llm.provider).toBe("github-models");
+      expect(verified.bundle.debate.bull).not.toHaveProperty("modelDigest");
+    });
+  it("replays new briefs with a digest and rejects an unknown config hash", async () => {
+    const bundle = await fixtureBundle();
+    bundle.debate.bull.modelDigest = "b".repeat(64);
+    bundle.debate.bear.modelDigest = null;
+    const verified = await verifyBundleWithConfig(canonicalJson(bundle), hashBundle(bundle));
+    expect(verified.bundle.debate).toEqual(bundle.debate);
+    bundle.configHash = `0x${"0".repeat(64)}`;
+    await expect(verifyBundleWithConfig(canonicalJson(bundle))).rejects.toThrow("No config found");
+  });
   it.each(["BTC", "ETH", "SOL"] as const)("replays a fixture bundle for %s exactly", async asset => {
     const bundle = await fixtureBundle(asset);
     const hash = hashBundle(bundle);

@@ -59,39 +59,68 @@ export function templateBrief(role: "bull" | "bear", signals: Signal[], exhibits
     ...validateClaims(output.claims, exhibits, signals), strength: output.strength, ...(error ? { error } : {}) };
 }
 
-export async function githubModels(prompt: string, config: Config["llm"], token: string, fetchFn: Fetch = fetch): Promise<string> {
-  const response = await fetchFn("https://models.github.ai/inference/chat/completions", {
-    method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "User-Agent": USER_AGENT },
-    body: JSON.stringify({ model: config.model, temperature: config.temperature, response_format: { type: "json_object" },
-      messages: [{ role: "user", content: prompt }] }), signal: AbortSignal.timeout(15_000)
-  });
-  if (!response.ok) throw new Error(`GitHub Models HTTP ${response.status}`);
-  const envelope = z.object({ choices: z.array(z.object({ message: z.object({ content: z.string() }) })).min(1) }).parse(await response.json());
-  return envelope.choices[0]!.message.content;
+export async function githubModels(): Promise<never> {
+  throw new Error("GitHub Models was retired on 2026-07-30");
 }
 
-export async function buildDebate(exhibits: Exhibit[], signals: Signal[], config: Config, options: { noLlm?: boolean; token?: string; fetchFn?: Fetch } = {}): Promise<Debate> {
+const OLLAMA_TIMEOUT = 300_000;
+class ModelResponseError extends Error {
+  constructor(message: string, readonly rawResponse: string) { super(message); }
+}
+
+export async function ollamaChat(prompt: string, config: Config["llm"], url: string, fetchFn: Fetch = fetch): Promise<string> {
+  const response = await fetchFn(`${url}/api/chat`, {
+    method: "POST", headers: { "Content-Type": "application/json", "User-Agent": USER_AGENT },
+    body: JSON.stringify({ model: config.model, messages: [{ role: "user", content: prompt }],
+      format: "json", stream: false, options: { temperature: config.temperature, seed: 42 } }),
+    signal: AbortSignal.timeout(OLLAMA_TIMEOUT)
+  });
+  const rawResponse = await response.text();
+  if (!response.ok) throw new ModelResponseError(`Ollama HTTP ${response.status}`, rawResponse);
+  try {
+    const envelope = z.object({ message: z.object({ content: z.string() }) }).parse(JSON.parse(rawResponse));
+    return envelope.message.content;
+  } catch (error) { throw new ModelResponseError(errorMessage(error), rawResponse); }
+}
+
+export async function ollamaDigest(model: string, url: string, fetchFn: Fetch = fetch): Promise<string | null> {
+  try {
+    const response = await fetchFn(`${url}/api/tags`, { method: "GET", signal: AbortSignal.timeout(OLLAMA_TIMEOUT) });
+    if (!response.ok) return null;
+    const tags = z.object({ models: z.array(z.object({ name: z.string(), model: z.string().optional(),
+      digest: z.string().regex(/^(sha256:)?[0-9a-f]{64}$/) })) }).parse(await response.json());
+    const name = model.split("/").at(-1)!.includes(":") ? model : `${model}:latest`;
+    return tags.models.find(m => m.name === name || m.model === name)?.digest ?? null;
+  } catch { return null; }
+}
+
+export async function buildDebate(exhibits: Exhibit[], signals: Signal[], config: Config, options: { noLlm?: boolean; fetchFn?: Fetch } = {}): Promise<Debate> {
   const input = debateInput(exhibits, signals);
+  const url = (process.env.OLLAMA_URL ?? "http://127.0.0.1:11434").replace(/\/+$/, "");
   const run = async (role: "bull" | "bear"): Promise<Brief> => {
     const instructions = await readFile(await workspacePath(resolve(AGENT_DIR, "prompts", `${role}.md`)), "utf8");
     const prompt = `${instructions.trim()}\n\n${input}`;
     if (options.noLlm || config.llm.provider === "none") return templateBrief(role, signals, exhibits, prompt);
-    const token = options.token ?? (process.env.MODELS_TOKEN || process.env.GITHUB_TOKEN);
-    let rawResponse = "";
+    let rawResponse: string | undefined;
+    let modelDigest: string | null = null;
     try {
-      if (!token) throw new Error("MODELS_TOKEN and GITHUB_TOKEN are absent");
-      rawResponse = await githubModels(prompt, config.llm, token, options.fetchFn);
+      if (config.llm.provider === "github-models") await githubModels();
+      modelDigest = await ollamaDigest(config.llm.model, url, options.fetchFn);
+      rawResponse = await ollamaChat(prompt, config.llm, url, options.fetchFn);
       const output = modelOutputSchema.parse(JSON.parse(rawResponse));
-      return { mode: "llm", model: config.llm.model, prompt, rawResponse,
+      return { mode: "llm", model: config.llm.model, modelDigest, prompt, rawResponse,
         ...validateClaims(output.claims, exhibits, signals), strength: output.strength };
     } catch (error) {
       const fallback = templateBrief(role, signals, exhibits, prompt, errorMessage(error));
       fallback.model = config.llm.model;
+      if (config.llm.provider === "ollama") fallback.modelDigest = modelDigest;
       // Preserve a malformed model response as evidence of the fallback.
-      if (rawResponse) fallback.rawResponse = rawResponse;
+      if (error instanceof ModelResponseError) fallback.rawResponse = error.rawResponse;
+      else if (rawResponse !== undefined) fallback.rawResponse = rawResponse;
       return fallback;
     }
   };
-  const [bull, bear] = await Promise.all([run("bull"), run("bear")]);
+  const bull = await run("bull");
+  const bear = await run("bear");
   return { bull, bear };
 }

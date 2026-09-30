@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 import { resolve } from "node:path";
 import { z } from "zod";
-import { loadConfig } from "./config.js";
+import { loadConfig, saveConfig } from "./config.js";
 import { fetchEvidence } from "./evidence/index.js";
 import { computeSignals } from "./signals.js";
 import { buildDebate } from "./debate.js";
@@ -30,6 +30,7 @@ export async function run(): Promise<void> {
   for (const asset of assets as Asset[]) {
     try {
       const createdAt = new Date().toISOString();
+      await saveConfig(config);
       const exhibits = await fetchEvidence(asset, { now: Date.parse(createdAt) });
       for (const e of exhibits) console.log(`${asset} ${e.id} ${e.source} ${e.kind}: ${e.status}${e.error ? ` (${e.error})` : ""}`);
       const signals = computeSignals(exhibits);
