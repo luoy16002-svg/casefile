@@ -1,0 +1,49 @@
+name: Paper agent
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+  models: read
+concurrency:
+  group: casefile-agent
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: agent/package-lock.json
+      - run: npm ci
+        working-directory: agent
+      - name: Review open cases
+        run: npm run review
+        working-directory: agent
+        env:
+          AGENT_PRIVATE_KEY: ${{ secrets.AGENT_PRIVATE_KEY }}
+          LEDGER_ADDRESS: ${{ vars.LEDGER_ADDRESS }}
+          MODELS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Open new cases
+        run: npm run agent
+        working-directory: agent
+        env:
+          AGENT_PRIVATE_KEY: ${{ secrets.AGENT_PRIVATE_KEY }}
+          LEDGER_ADDRESS: ${{ vars.LEDGER_ADDRESS }}
+          MODELS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Save case and review files
+        if: always()
+        run: |
+          git add cases/ reviews/
+          if git diff --cached --quiet; then
+            echo "No case or review changes"
+            exit 0
+          fi
+          git -c user.name="casefile-agent" -c user.email="casefile-agent@users.noreply.github.com" commit -m "casefile: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          git push

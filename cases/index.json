@@ -1,0 +1,18 @@
+[
+  {
+    "id": "1",
+    "bundleHash": "0xe0a523498be468e45e49c2a2e879a2b91c5c9188ec52b31a53ae99cb0a566801",
+    "asset": "BTC",
+    "side": "Flat",
+    "tx": "0xfca90330ee976972ef99e21a39c68a1f346724c85c6ae0323ea92cdd30922087",
+    "openedAt": 1790745036
+  },
+  {
+    "id": "2",
+    "tx": "0x426e6f5319a3e81a0bb8351e7af454be4556e27f066ba25d7a97105b51f68b56",
+    "openedAt": 1790745040,
+    "bundleHash": "0x2a555949572bc897f2d3b4a5c24d78c09d3e9cc2e4126c6b2959bb922a1c9f05",
+    "asset": "ETH",
+    "side": "Flat"
+  }
+]
