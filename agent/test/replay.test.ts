@@ -18,9 +18,11 @@ describe("replay", () => {
       expect(hashBundle(verified.config)).toBe(verified.bundle.configHash);
       expect(verified.config.llm.provider).toBe(verified.config.llm.model.startsWith("qwen") ? "ollama" : "github-models");
       expect(verified.bundle.debate).toEqual(JSON.parse(bytes).debate);
+      expect(verified.config.debate).toBeUndefined();
       // Cases opened before structured output (GitHub Models, qwen2.5:3b) carry neither field; later model briefs carry both.
       const structured = verified.config.llm.provider === "ollama" && verified.config.llm.model !== "qwen2.5:3b";
       for (const brief of [verified.bundle.debate.bull, verified.bundle.debate.bear]) {
+        expect(brief).not.toHaveProperty("unchecked");
         if (structured && brief.mode === "llm") {
           expect(brief).toHaveProperty("responseFormat");
           expect(typeof brief.normalized).toBe("boolean");

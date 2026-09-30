@@ -31,10 +31,12 @@ export function verifyBundle(bytes: string, config: Config, expectedHash?: strin
   equal(signals, bundle.signals, "Signals");
   for (const role of ["bull", "bear"] as const) {
     const brief = bundle.debate[role];
-    const accepted = validateClaims(brief.claims, bundle.exhibits, signals);
+    const accepted = validateClaims(brief.claims, bundle.exhibits, signals, { role, config });
     if (accepted.struck.length) throw new Error(`${role} contains invalid surviving claims`);
+    if (config.debate?.directionCheck === "v1" && brief.unchecked !== accepted.unchecked)
+      throw new Error(`${role} unchecked count mismatch`);
     for (const struck of brief.struck) {
-      const result = validateClaims([struck.claim], bundle.exhibits, signals);
+      const result = validateClaims([struck.claim], bundle.exhibits, signals, { role, config });
       if (result.struck.length !== 1 || result.struck[0]!.reason !== struck.reason) throw new Error(`${role} struck-claim validation mismatch`);
     }
   }
@@ -78,6 +80,7 @@ export function replayTrail(bundle: Bundle, hash: string): string {
   for (const role of ["bull", "bear"] as const) {
     const brief = bundle.debate[role];
     lines.push(`${role} (${brief.mode}, model=${brief.model}${brief.modelDigest !== undefined ? `, digest=${brief.modelDigest ?? "unknown"}` : ""}, strength=${brief.strength})${brief.error ? ` fallback=${brief.error}` : ""}:`);
+    if (brief.unchecked !== undefined) lines.push(`  Unchecked claims: ${brief.unchecked}`);
     for (const c of brief.claims) lines.push(`  SURVIVES [${c.cites.join(",")}] ${c.text}`);
     for (const c of brief.struck) lines.push(`  STRUCK [${c.claim.cites.join(",")}] ${c.claim.text}; ${c.reason}`);
   }

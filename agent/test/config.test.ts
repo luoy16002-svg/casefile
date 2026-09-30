@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CONFIGS_DIR, loadConfig, loadConfigForHash, saveConfig } from "../src/config.js";
+import { CONFIGS_DIR, configSchema, loadConfig, loadConfigForHash, saveConfig } from "../src/config.js";
 import { canonicalJson, hashBundle } from "../src/bundle.js";
 import { ROOT } from "../src/paths.js";
 import { config } from "./helpers.js";
@@ -20,17 +20,21 @@ describe("config archives", () => {
     await saveConfig(old, directory);
     expect(await loadConfigForHash(hashBundle(old), config, directory)).toEqual(old);
   });
-  it("loads the current and both historical configs as exact canonical bytes", async () => {
+  it("loads the current and all three historical configs as exact canonical bytes", async () => {
     for (const hash of [hashBundle(config), "0x2466aa5a79312b2b6f11588330beea6ae3b3e07e0e59471e6d9a7eba459b14b6",
-      "0x2e2c39c97ae95d6dc932ffc0a69ab69193b8a9e553e70cb8534e105dc7f8e66c"]) {
+      "0x2e2c39c97ae95d6dc932ffc0a69ab69193b8a9e553e70cb8534e105dc7f8e66c",
+      "0xc75562980da71c0cc7ce161b194a32651d6996418f7c88c09d236496fe5a60a8"]) {
       const loaded = await loadConfigForHash(hash);
       expect(await readFile(resolve(CONFIGS_DIR, `${hash}.json`), "utf8")).toBe(canonicalJson(loaded));
       expect(hashBundle(loaded)).toBe(hash);
     }
   });
-  it("changes only the model from the previous Ollama config", async () => {
-    const previous = await loadConfigForHash("0x2e2c39c97ae95d6dc932ffc0a69ab69193b8a9e553e70cb8534e105dc7f8e66c");
-    expect(config).toEqual({ ...previous, llm: { ...previous.llm, model: "qwen2.5:7b" } });
+  it("changes only the direction-check setting from the Phase 4 config", async () => {
+    const previous = await loadConfigForHash("0xc75562980da71c0cc7ce161b194a32651d6996418f7c88c09d236496fe5a60a8");
+    expect(config).toEqual({ ...previous, debate: { directionCheck: "v1" } });
+  });
+  it("rejects unsupported direction-check versions", () => {
+    expect(configSchema.safeParse({ ...config, debate: { directionCheck: "v2" } }).success).toBe(false);
   });
   it("falls back to the current config only when its hash matches", async () => {
     expect(await loadConfigForHash(hashBundle(config), config, directory)).toEqual(config);
