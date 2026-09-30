@@ -1,0 +1,16 @@
+node_modules/
+tmp/
+agent/tmp/
+contracts/out/
+contracts/cache/
+.env
+.env.*
+codex-run.log
+codex-final.txt
+BRIEF.md
+PHASE2.md
+FINAL.md
+PHASE2-REPORT.md
+codex-phase2.log
+codex-phase2-final.txt
+contracts/broadcast/*/31337/

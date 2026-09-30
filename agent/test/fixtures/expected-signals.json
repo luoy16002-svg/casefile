@@ -1,0 +1,53 @@
+{
+  "BTC": {
+    "ret_1h": -0.172296,
+    "ret_24h": 0.309734,
+    "ret_7d": -3.154143,
+    "rsi14_1h": 47.46364,
+    "checkpoints": {
+      "hourlyLatest": 83438.67,
+      "hourlyPrior1": 83582.68,
+      "hourlyPrior24": 83181.03,
+      "dailyLatest": 83479.24,
+      "dailyPrior7": 86198.05,
+      "seedGainSum": 971.11,
+      "seedLossSum": 453.58,
+      "finalWilderAverageGain": 103.03822266055654,
+      "finalWilderAverageLoss": 114.05052751941791
+    }
+  },
+  "ETH": {
+    "ret_1h": -0.379774,
+    "ret_24h": 0.189663,
+    "ret_7d": -2.676347,
+    "rsi14_1h": 45.461886,
+    "checkpoints": {
+      "hourlyLatest": 2678.23,
+      "hourlyPrior1": 2688.44,
+      "hourlyPrior24": 2673.16,
+      "dailyLatest": 2679.69,
+      "dailyPrior7": 2753.38,
+      "seedGainSum": 43.49,
+      "seedLossSum": 24.74,
+      "finalWilderAverageGain": 4.597338080521958,
+      "finalWilderAverageLoss": 5.515172705797559
+    }
+  },
+  "SOL": {
+    "ret_1h": -0.26046,
+    "ret_24h": 0.883828,
+    "ret_7d": 0.067476,
+    "rsi14_1h": 47.925774,
+    "checkpoints": {
+      "hourlyLatest": 118.71,
+      "hourlyPrior1": 119.02,
+      "hourlyPrior24": 117.67,
+      "dailyLatest": 118.64,
+      "dailyPrior7": 118.56,
+      "seedGainSum": 5.16,
+      "seedLossSum": 2.96,
+      "finalWilderAverageGain": 0.29753037237737634,
+      "finalWilderAverageLoss": 0.32328458025774176
+    }
+  }
+}
