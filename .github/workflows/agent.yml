@@ -30,7 +30,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/.ollama/models
-          key: ${{ runner.os }}-ollama-qwen2.5:3b
+          key: ${{ runner.os }}-ollama-qwen2.5:7b
       - name: Start Ollama and pull model
         env:
           OLLAMA_HOST: 127.0.0.1:11434
@@ -41,7 +41,7 @@ jobs:
             echo "Ollama did not become ready within 60 seconds"
             exit 1
           fi
-          ollama pull qwen2.5:3b
+          ollama pull qwen2.5:7b
       - name: Review open cases
         run: npm run review
         working-directory: agent

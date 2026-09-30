@@ -1,14 +1,74 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildDebate, modelOutputSchema, templateBrief, validateClaims } from "../src/debate.js";
+import { buildDebate, buildResponseFormat, modelOutputSchema, OLLAMA_TIMEOUT, templateBrief, validateClaims } from "../src/debate.js";
 import { canonicalJson } from "../src/bundle.js";
 import { config, fixture, testSignals } from "./helpers.js";
 import { computeSignals } from "../src/signals.js";
 
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 const digest = "a".repeat(64);
-const tags = () => new Response(JSON.stringify({ models: [{ name: "qwen2.5:3b", digest }] }));
+const tags = () => new Response(JSON.stringify({ models: [{ name: config.llm.model, digest }] }));
 const chat = (content: string) => new Response(JSON.stringify({ message: { content } }));
 describe("debate", () => {
+  it("builds a bounded schema from the case's available exhibits and non-null signals", () => {
+    const { exhibits } = fixture();
+    exhibits[2] = { ...exhibits[2]!, status: "unavailable", data: null, error: "test" };
+    const signals = computeSignals(exhibits);
+    expect(signals.find(s => s.name === "funding_annualized_pct")!.value).toBeNull();
+    expect(buildResponseFormat(exhibits, signals)).toEqual({
+      type: "object",
+      properties: {
+        claims: { type: "array", maxItems: 5, items: {
+          type: "object", properties: {
+            text: { type: "string", maxLength: 240 },
+            cites: { type: "array", minItems: 1, maxItems: 7,
+              items: { type: "string", enum: ["E1", "E2", "E4", "E5", "E6", "E7"] } },
+            signal: { anyOf: [{ type: "string", enum: [
+              "ret_1h", "ret_24h", "ret_7d", "price_vs_sma20d_pct", "rsi14_1h", "atr14_1h_pct",
+              "realized_vol_24h_pct", "fng", "fng_change_7d", "news_count_48h", "news_tone"
+            ] }, { type: "null" }] }
+          }, required: ["text", "cites", "signal"]
+        } },
+        strength: { type: "number", minimum: 0, maximum: 1 }
+      }, required: ["claims", "strength"]
+    });
+  });
+  it("allows only null signals when evidence is missing, and keeps zero-valued signals", () => {
+    const exhibits = fixture().exhibits.map(e => ({ ...e, status: "unavailable" as const, data: null, error: "test" }));
+    const format = buildResponseFormat(exhibits, computeSignals(exhibits));
+    expect(format.properties.claims.items.properties.cites.items.enum).toEqual([]);
+    expect(format.properties.claims.items.properties.signal).toEqual({ anyOf: [{ type: "null" }] });
+    expect(buildResponseFormat([], testSignals({ ret_24h: 0 })).properties.claims.items.properties.signal.anyOf)
+      .toContainEqual({ type: "string", enum: expect.arrayContaining(["ret_24h"]) });
+  });
+  it("normalizes a missing signal to null", () => {
+    expect(modelOutputSchema.parse({ claims: [{ text: "claim", cites: ["E1"] }], strength: 0.5 }))
+      .toEqual({ claims: [{ text: "claim", cites: ["E1"], signal: null }], strength: 0.5, normalized: true });
+  });
+  it.each([" e5,e6 e7 ", ["E5,E6,E7"], [" e5 ", "e6\tE7"]])("splits and normalizes citations %j", cites => {
+    const output = modelOutputSchema.parse({ claims: [{ text: "claim", cites, signal: null }], strength: 0.5 });
+    expect(output.claims[0]!.cites).toEqual(["E5", "E6", "E7"]);
+    expect(output.normalized).toBe(true);
+  });
+  it("records normalization and preserves every strike reason in model briefs", async () => {
+    const { exhibits } = fixture();
+    exhibits[2] = { ...exhibits[2]!, status: "unavailable", data: null, error: "test" };
+    const content = JSON.stringify({ claims: [
+      { text: "News tone is neutral", cites: ["E5,E6,E7"] },
+      { text: "Missing citations", cites: " , " },
+      { text: "Invalid claim", cites: " e99,e3 ", signal: "imaginary" }
+    ], strength: 0.5 });
+    const fetchFn = vi.fn<typeof fetch>().mockImplementation(async url => String(url).endsWith("/api/tags") ? tags() : chat(content));
+    const d = await buildDebate(exhibits, computeSignals(exhibits), config, { fetchFn });
+    for (const brief of [d.bull, d.bear]) {
+      expect(brief).toMatchObject({ mode: "llm", normalized: true, rawResponse: content });
+      expect(brief.claims).toEqual([{ text: "News tone is neutral", cites: ["E5", "E6", "E7"], signal: null }]);
+      expect(brief.struck).toEqual([
+        { claim: { text: "Missing citations", cites: [], signal: null }, reason: "No exhibit citations" },
+        { claim: { text: "Invalid claim", cites: ["E99", "E3"], signal: "imaginary" },
+          reason: "Unknown exhibit E99; Unavailable exhibit E3; Unknown signal imaginary" }
+      ]);
+    }
+  });
   it("strikes absent, unknown and unavailable citations, and unknown signal names", () => {
     const { exhibits } = fixture(); exhibits[2] = { ...exhibits[2]!, status: "unavailable", data: null, error: "test" };
     const claims = [
@@ -39,7 +99,7 @@ describe("debate", () => {
     expect(fetchFn).not.toHaveBeenCalled();
     expect(d.bull.prompt.split("SIGNALS\n")[1]).toBe(d.bear.prompt.split("SIGNALS\n")[1]);
   });
-  it("calls native Ollama with the configured model, JSON format, seed, timeout and exact digest", async () => {
+  it("calls native Ollama with the configured model, structured format, bounded options, timeout and exact digest", async () => {
     vi.stubEnv("OLLAMA_URL", undefined);
     const timeout = vi.spyOn(AbortSignal, "timeout");
     const content = JSON.stringify({ claims: [{ text: "Hourly evidence supports this claim", cites: ["E1"], signal: "ret_24h" }], strength: 0.7 });
@@ -52,10 +112,14 @@ describe("debate", () => {
     expect(init?.method).toBe("POST");
     expect(init?.headers).toMatchObject({ "Content-Type": "application/json" });
     expect(init?.headers).not.toHaveProperty("Authorization");
-    expect(JSON.parse(init!.body as string)).toEqual({ model: "qwen2.5:3b", messages: [{ role: "user", content: d.bull.prompt }],
-      format: "json", stream: false, options: { temperature: 0, seed: 42 } });
-    expect(timeout.mock.calls).toEqual([[300_000], [300_000], [300_000], [300_000]]);
-    expect(d.bull).toMatchObject({ mode: "llm", model: config.llm.model, modelDigest: digest, rawResponse: content, strength: 0.7 });
+    const format = buildResponseFormat(exhibits, computeSignals(exhibits));
+    expect(JSON.parse(init!.body as string)).toEqual({ model: "qwen2.5:7b", messages: [{ role: "user", content: d.bull.prompt }],
+      format, stream: false, options: { temperature: 0, seed: 42, num_ctx: 8192, num_predict: 700 } });
+    expect(OLLAMA_TIMEOUT).toBe(600_000);
+    expect(timeout.mock.calls).toEqual([[600_000], [600_000], [600_000], [600_000]]);
+    expect(d.bull).toMatchObject({ mode: "llm", model: config.llm.model, modelDigest: digest, rawResponse: content,
+      responseFormat: format, normalized: false, strength: 0.7 });
+    expect(d.bear.responseFormat).toEqual(JSON.parse(fetchFn.mock.calls[3]![1]!.body as string).format);
     expect(d.bear.modelDigest).toBe(digest);
     expect(d.bull.claims).toHaveLength(1); expect(d.bull.struck).toEqual([]);
   });
@@ -98,6 +162,7 @@ describe("debate", () => {
     const d = await buildDebate(exhibits, computeSignals(exhibits), config, { fetchFn });
     expect(d.bull).toMatchObject({ mode: "template", rawResponse: content, model: config.llm.model, modelDigest: digest });
     expect(d.bull.error).toBeTruthy();
+    expect(d.bull.responseFormat).toEqual(JSON.parse(fetchFn.mock.calls[1]![1]!.body as string).format);
   });
   it.each(["OK\r\n", '{"message":{}}'])("preserves a malformed API envelope %j", async raw => {
     const { exhibits } = fixture();
@@ -138,5 +203,21 @@ describe("debate", () => {
     expect(modelOutputSchema.safeParse({ claims: [{ text: "x".repeat(241), cites: [], signal: null }], strength: 0.5 }).success).toBe(false);
     expect(modelOutputSchema.safeParse({ claims: [], strength: 1.1 }).success).toBe(false);
     expect(modelOutputSchema.safeParse({ claims: Array.from({ length: 6 }, () => ({ text: "x", cites: ["E1"], signal: null })), strength: 0 }).success).toBe(false);
+  });
+  it.each([
+    { claims: [{ text: "", cites: ["E1"] }], strength: 0.5 },
+    { claims: [{ text: "x", cites: [1] }], strength: 0.5 },
+    { claims: [{ text: "x", cites: null }], strength: 0.5 },
+    { claims: [{ text: "x" }], strength: 0.5 },
+    { claims: [{ text: "x", cites: ["E1"], signal: 1 }], strength: 0.5 },
+    { claims: [{ text: "x", cites: ["E1"], extra: true }], strength: 0.5 },
+    { claims: [], strength: "0.5" },
+    { claims: [], strength: -0.1 },
+    { claims: [], strength: NaN },
+    { claims: [], strength: Infinity },
+    { claims: [] },
+    { claims: [], strength: 0.5, extra: true }
+  ])("keeps all other model output validation strict: %j", output => {
+    expect(modelOutputSchema.safeParse(output).success).toBe(false);
   });
 });

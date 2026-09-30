@@ -1,16 +1,48 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { z } from "zod";
-import type { Brief, Claim, Debate, Exhibit, NewsItem, Signal } from "./types.js";
+import type { Brief, Claim, Debate, Exhibit, NewsItem, ResponseFormat, Signal } from "./types.js";
 import type { Config } from "./config.js";
 import { AGENT_DIR, workspacePath } from "./paths.js";
 import { canonicalJson } from "./bundle.js";
 import { errorMessage, USER_AGENT, type Fetch } from "./evidence/http.js";
 
 export const modelOutputSchema = z.object({
-  claims: z.array(z.object({ text: z.string().min(1).max(240), cites: z.array(z.string()), signal: z.string().nullable() }).strict()).max(5),
+  claims: z.array(z.object({ text: z.string().min(1).max(240),
+    cites: z.union([z.string(), z.array(z.string())]), signal: z.string().nullable().optional() }).strict()).max(5),
   strength: z.number().finite().min(0).max(1)
-}).strict();
+}).strict().transform(output => {
+  let normalized = false;
+  const claims = output.claims.map(claim => {
+    const original = typeof claim.cites === "string" ? [claim.cites] : claim.cites;
+    const cites = original.flatMap(cite => cite.split(/[,\s]+/).map(id => id.trim().toUpperCase()).filter(Boolean));
+    if (claim.signal === undefined || typeof claim.cites === "string"
+      || original.length !== cites.length || original.some((id, i) => id !== cites[i])) normalized = true;
+    return { text: claim.text, cites, signal: claim.signal ?? null };
+  });
+  return { claims, strength: output.strength, normalized };
+});
+
+export function buildResponseFormat(exhibits: Exhibit[], signals: Signal[]): ResponseFormat {
+  const names = signals.filter(signal => signal.value !== null).map(signal => signal.name);
+  return {
+    type: "object",
+    properties: {
+      claims: { type: "array", maxItems: 5, items: {
+        type: "object",
+        properties: {
+          text: { type: "string", maxLength: 240 },
+          cites: { type: "array", minItems: 1, maxItems: 7,
+            items: { type: "string", enum: exhibits.filter(exhibit => exhibit.status === "ok").map(exhibit => exhibit.id) } },
+          signal: { anyOf: names.length > 0 ? [{ type: "string", enum: names }, { type: "null" }] : [{ type: "null" }] }
+        },
+        required: ["text", "cites", "signal"]
+      } },
+      strength: { type: "number", minimum: 0, maximum: 1 }
+    },
+    required: ["claims", "strength"]
+  };
+}
 
 export function validateClaims(claims: Claim[], exhibits: Exhibit[], signals: Signal[]): Pick<Brief, "claims" | "struck"> {
   const known = new Map(exhibits.map(e => [e.id, e]));
@@ -63,16 +95,16 @@ export async function githubModels(): Promise<never> {
   throw new Error("GitHub Models was retired on 2026-07-30");
 }
 
-const OLLAMA_TIMEOUT = 300_000;
+export const OLLAMA_TIMEOUT = 600_000;
 class ModelResponseError extends Error {
   constructor(message: string, readonly rawResponse: string) { super(message); }
 }
 
-export async function ollamaChat(prompt: string, config: Config["llm"], url: string, fetchFn: Fetch = fetch): Promise<string> {
+export async function ollamaChat(prompt: string, config: Config["llm"], url: string, responseFormat: ResponseFormat, fetchFn: Fetch = fetch): Promise<string> {
   const response = await fetchFn(`${url}/api/chat`, {
     method: "POST", headers: { "Content-Type": "application/json", "User-Agent": USER_AGENT },
     body: JSON.stringify({ model: config.model, messages: [{ role: "user", content: prompt }],
-      format: "json", stream: false, options: { temperature: config.temperature, seed: 42 } }),
+      format: responseFormat, stream: false, options: { temperature: config.temperature, seed: 42, num_ctx: 8192, num_predict: 700 } }),
     signal: AbortSignal.timeout(OLLAMA_TIMEOUT)
   });
   const rawResponse = await response.text();
@@ -103,17 +135,18 @@ export async function buildDebate(exhibits: Exhibit[], signals: Signal[], config
     if (options.noLlm || config.llm.provider === "none") return templateBrief(role, signals, exhibits, prompt);
     let rawResponse: string | undefined;
     let modelDigest: string | null = null;
+    const responseFormat = buildResponseFormat(exhibits, signals);
     try {
       if (config.llm.provider === "github-models") await githubModels();
       modelDigest = await ollamaDigest(config.llm.model, url, options.fetchFn);
-      rawResponse = await ollamaChat(prompt, config.llm, url, options.fetchFn);
+      rawResponse = await ollamaChat(prompt, config.llm, url, responseFormat, options.fetchFn);
       const output = modelOutputSchema.parse(JSON.parse(rawResponse));
-      return { mode: "llm", model: config.llm.model, modelDigest, prompt, rawResponse,
+      return { mode: "llm", model: config.llm.model, modelDigest, prompt, rawResponse, responseFormat, normalized: output.normalized,
         ...validateClaims(output.claims, exhibits, signals), strength: output.strength };
     } catch (error) {
       const fallback = templateBrief(role, signals, exhibits, prompt, errorMessage(error));
       fallback.model = config.llm.model;
-      if (config.llm.provider === "ollama") fallback.modelDigest = modelDigest;
+      if (config.llm.provider === "ollama") { fallback.modelDigest = modelDigest; fallback.responseFormat = responseFormat; }
       // Preserve a malformed model response as evidence of the fallback.
       if (error instanceof ModelResponseError) fallback.rawResponse = error.rawResponse;
       else if (rawResponse !== undefined) fallback.rawResponse = rawResponse;

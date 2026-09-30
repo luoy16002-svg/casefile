@@ -20,12 +20,17 @@ describe("config archives", () => {
     await saveConfig(old, directory);
     expect(await loadConfigForHash(hashBundle(old), config, directory)).toEqual(old);
   });
-  it("loads both committed configs as exact canonical bytes", async () => {
-    for (const hash of [hashBundle(config), "0x2466aa5a79312b2b6f11588330beea6ae3b3e07e0e59471e6d9a7eba459b14b6"]) {
+  it("loads the current and both historical configs as exact canonical bytes", async () => {
+    for (const hash of [hashBundle(config), "0x2466aa5a79312b2b6f11588330beea6ae3b3e07e0e59471e6d9a7eba459b14b6",
+      "0x2e2c39c97ae95d6dc932ffc0a69ab69193b8a9e553e70cb8534e105dc7f8e66c"]) {
       const loaded = await loadConfigForHash(hash);
       expect(await readFile(resolve(CONFIGS_DIR, `${hash}.json`), "utf8")).toBe(canonicalJson(loaded));
       expect(hashBundle(loaded)).toBe(hash);
     }
+  });
+  it("changes only the model from the previous Ollama config", async () => {
+    const previous = await loadConfigForHash("0x2e2c39c97ae95d6dc932ffc0a69ab69193b8a9e553e70cb8534e105dc7f8e66c");
+    expect(config).toEqual({ ...previous, llm: { ...previous.llm, model: "qwen2.5:7b" } });
   });
   it("falls back to the current config only when its hash matches", async () => {
     expect(await loadConfigForHash(hashBundle(config), config, directory)).toEqual(config);

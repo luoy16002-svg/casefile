@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { canonicalJson, hashBundle } from "../src/bundle.js";
@@ -6,6 +6,8 @@ import { replayTrail, verifyBundle, verifyBundleWithConfig, verifyChain } from "
 import { ROOT } from "../src/paths.js";
 import { assetBytes, sideNumber } from "../src/ledger.js";
 import { config, fixtureBundle, ledgerCase } from "./helpers.js";
+import { buildDebate } from "../src/debate.js";
+import { judge } from "../src/judge.js";
 
 describe("replay", () => {
   it.each(readdirSync(resolve(ROOT, "cases")).filter(name => /^0x[0-9a-f]{64}\.json$/.test(name)))
@@ -14,9 +16,32 @@ describe("replay", () => {
       const verified = await verifyBundleWithConfig(bytes, name.slice(0, -5), config);
       expect(verified.hash).toBe(name.slice(0, -5));
       expect(hashBundle(verified.config)).toBe(verified.bundle.configHash);
-      expect(verified.config.llm.provider).toBe("github-models");
-      expect(verified.bundle.debate.bull).not.toHaveProperty("modelDigest");
+      expect(verified.config.llm.provider).toBe(verified.config.llm.model.startsWith("qwen") ? "ollama" : "github-models");
+      expect(verified.bundle.debate).toEqual(JSON.parse(bytes).debate);
+      for (const brief of [verified.bundle.debate.bull, verified.bundle.debate.bear]) {
+        expect(brief).not.toHaveProperty("responseFormat");
+        expect(brief).not.toHaveProperty("normalized");
+      }
     });
+  it("replays new structured briefs with normalized claims and preserved strike reasons", async () => {
+    const bundle = await fixtureBundle();
+    const content = JSON.stringify({ claims: [
+      { text: "Hourly return", cites: " e1 " },
+      { text: "Unknown citation", cites: ["e99"] }
+    ], strength: 0.5 });
+    const fetchFn = vi.fn<typeof fetch>().mockImplementation(async url => new Response(JSON.stringify(
+      String(url).endsWith("/api/tags") ? { models: [] } : { message: { content } }
+    )));
+    bundle.debate = await buildDebate(bundle.exhibits, bundle.signals, config, { fetchFn });
+    bundle.ruling = judge(bundle.signals, bundle.debate, bundle.exhibits, config);
+    const verified = await verifyBundleWithConfig(canonicalJson(bundle), hashBundle(bundle));
+    expect(verified.bundle.debate).toEqual(bundle.debate);
+    expect(verified.bundle.debate.bull).toMatchObject({ mode: "llm", normalized: true });
+    expect(verified.bundle.debate.bull.responseFormat).toBeDefined();
+    expect(verified.bundle.debate.bull.struck[0]!.reason).toBe("Unknown exhibit E99");
+    bundle.debate.bull.struck[0]!.reason = "Rewritten reason";
+    expect(() => verifyBundle(canonicalJson(bundle), config)).toThrow("struck-claim validation mismatch");
+  });
   it("replays new briefs with a digest and rejects an unknown config hash", async () => {
     const bundle = await fixtureBundle();
     bundle.debate.bull.modelDigest = "b".repeat(64);
