@@ -19,6 +19,7 @@ export const configSchema = z.object({
       fundingHighPct: z.number(), fundingLowPct: z.number(), fngHigh: z.number().min(0).max(100), fngLow: z.number().min(0).max(100)
     }).strict()
   }).strict(),
+  debate: z.object({ directionCheck: z.literal("v1") }).strict().optional(),
   llm: z.object({ provider: z.enum(["ollama", "github-models", "none"]), model: z.string().min(1), temperature: z.number().min(0).max(2) }).strict(),
   chain: z.object({ chainId: z.number().int().positive(), rpc: z.url() }).strict()
 }).strict().superRefine((config, ctx) => {

@@ -45,6 +45,7 @@ export interface Brief {
   modelDigest?: string | null;
   responseFormat?: ResponseFormat;
   normalized?: boolean;
+  unchecked?: number;
   rawResponse: string; claims: Claim[]; struck: StruckClaim[]; strength: number; error?: string;
 }
 export interface Debate { bull: Brief; bear: Brief }

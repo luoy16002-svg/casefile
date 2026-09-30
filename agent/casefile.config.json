@@ -6,6 +6,7 @@
     "weights": { "trend": 1, "momentum": 0.7, "rsi_extreme": 0.6, "funding_crowding": 0.6, "sentiment_extreme": 0.5, "news_tone": 0.3, "debate": 0.5 },
     "thresholds": { "longScore": 0.25, "shortScore": -0.25, "trendPct": 3, "rsiHigh": 75, "rsiLow": 25, "fundingHighPct": 30, "fundingLowPct": -10, "fngHigh": 80, "fngLow": 20 }
   },
+  "debate": { "directionCheck": "v1" },
   "llm": { "provider": "ollama", "model": "qwen2.5:7b", "temperature": 0 },
   "chain": { "chainId": 46630, "rpc": "https://rpc.testnet.chain.robinhood.com/rpc" }
 }

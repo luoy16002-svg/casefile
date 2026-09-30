@@ -43,6 +43,7 @@ export const responseFormatSchema: z.ZodType<ResponseFormat> = z.object({
 const brief = z.object({ mode: z.enum(["llm", "template"]), model: z.string(), prompt: z.string(), rawResponse: z.string(),
   modelDigest: z.string().regex(/^(sha256:)?[0-9a-f]{64}$/).nullable().optional(),
   responseFormat: responseFormatSchema.optional(), normalized: z.boolean().optional(),
+  unchecked: z.number().int().min(0).max(5).optional(),
   claims: z.array(claim).max(5), struck: z.array(z.object({ claim, reason: z.string() }).strict()).max(5),
   strength: z.number().finite().min(0).max(1), error: z.string().optional() }).strict();
 const ruling = z.object({ side: z.enum(["Flat", "Long", "Short"]), sizeBps: z.number().int().min(0).max(10000),
