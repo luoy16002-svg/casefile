@@ -1273,9 +1273,33 @@
   },
   {
     "id": "161",
-    "tx": "0x36b0dbe5ca3669da20b78c22ef88c9e1c09e4d47525b472fdf327977048ccd96",
-    "openedAt": 1792150622,
     "bundleHash": "0x7dc2cf76f33279c102d90a850839ea3969a53d5d94f2790f269d4ce1ed415951",
+    "asset": "SOL",
+    "side": "Flat",
+    "tx": "0x36b0dbe5ca3669da20b78c22ef88c9e1c09e4d47525b472fdf327977048ccd96",
+    "openedAt": 1792150622
+  },
+  {
+    "id": "162",
+    "bundleHash": "0xc379b6f2a4dec49478454485272b7c2272c66e89978cab721259173d1338098b",
+    "asset": "BTC",
+    "side": "Short",
+    "tx": "0x75dd3d3ba0871c49ab72b7a3ef2f52f69893e7a6038066d3cfed78b59f3dbfc3",
+    "openedAt": 1792169401
+  },
+  {
+    "id": "163",
+    "bundleHash": "0x0c61b98b96b9ca077fbe15a1c0a8fd2422a7cd85523981d78956cef6c4b2120b",
+    "asset": "ETH",
+    "side": "Short",
+    "tx": "0xc60b2fb9a5dffc895499fc52006ddd7ddf6f26e1dedce5b448e7b2a6fc3e4e7d",
+    "openedAt": 1792169561
+  },
+  {
+    "id": "164",
+    "tx": "0xf664df7807ad3d74845adc1b95deaeced5267a2aa904b8b9a863ebae67c46e8d",
+    "openedAt": 1792169708,
+    "bundleHash": "0xf537c344888b44ef443326be0cbaa3ade389370efb3bf3a0ff7fcbe90a64eadc",
     "asset": "SOL",
     "side": "Flat"
   }
