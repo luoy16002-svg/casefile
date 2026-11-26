@@ -3897,9 +3897,25 @@
   },
   {
     "id": "490",
-    "tx": "0x9d7451ee420068ec75ccece09c6099e60147d1f24def54c8e85bfeb523296196",
-    "openedAt": 1795682300,
     "bundleHash": "0x65b4249c3b20755c96a4ff6f8d435ce0d1eb5f0cf79c9ad428fc3ea214dd5b20",
+    "asset": "ETH",
+    "side": "Flat",
+    "tx": "0x9d7451ee420068ec75ccece09c6099e60147d1f24def54c8e85bfeb523296196",
+    "openedAt": 1795682300
+  },
+  {
+    "id": "491",
+    "bundleHash": "0x85140d84229cf32c2b8e17181eba2624601c22463f21443888687183febeec82",
+    "asset": "BTC",
+    "side": "Flat",
+    "tx": "0x8538bf5f456d06227d45f92d1cc7279f07ca4bad094a1790ec747256b3f3ab0d",
+    "openedAt": 1795729444
+  },
+  {
+    "id": "492",
+    "tx": "0x96faee8ef0bca7aa78bd7659c314f18ab107f6bd4bb394d0f81b7faacf5abeda",
+    "openedAt": 1795729542,
+    "bundleHash": "0x90fad5df874b9c44e9c2635d3b5d42eb2e446908d1351bbaaf37e7d6c17020cc",
     "asset": "ETH",
     "side": "Flat"
   }
